@@ -1,4 +1,4 @@
-name: Build Legram (Clean Final)
+name: Build Legram (Final Override)
 
 on:
   workflow_dispatch:
@@ -18,18 +18,18 @@ jobs:
 
       - name: Prepare Configuration
         run: |
-          # سنكتب كل المعلومات داخل هذا الملف بدلاً من تمريرها كأوامر
           echo "api_id = ${{ secrets.TELEGRAM_API_ID }}" > build_variables.conf
           echo "api_hash = ${{ secrets.TELEGRAM_API_HASH }}" >> build_variables.conf
           echo "bundle_id = com.legram.ios" >> build_variables.conf
-          
-          # إنشاء ملف إعدادات فارغ ليقبله النظام
           echo "{}" > app_config.json
 
       - name: Build Legram IPA
         run: |
-          # هنا نستخدم فقط الأوامر التي يفهمها Make.py
-          python3 build-system/Make/Make.py build \
+          # أضفنا أوامر التجاوز هنا قبل كلمة build
+          python3 build-system/Make/Make.py \
+            --overrideXcodeVersion \
+            --overrideBazelVersion \
+            build \
             --buildNumber 100 \
             --configurationPath . \
             --configuration release_arm64 \

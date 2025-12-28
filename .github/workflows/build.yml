@@ -21,11 +21,14 @@ jobs:
           mkdir -p build-input/data
           echo "api_id = ${{ secrets.TELEGRAM_API_ID }}" > build_variables.conf
           echo "api_hash = ${{ secrets.TELEGRAM_API_HASH }}" >> build_variables.conf
+          # إنشاء ملف إعدادات وهمي لإرضاء النظام
+          touch app_config.json 
 
       - name: Build Legram IPA
         run: |
           python3 build-system/Make/Make.py build \
             --buildNumber 100 \
+            --configurationPath . \
             --configuration release_arm64 \
             --xcodeManagedCodesigning \
             --bundle_id "com.legram.ios" \

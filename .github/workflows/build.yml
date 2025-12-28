@@ -25,6 +25,9 @@ jobs:
       - name: Build Legram IPA
         run: |
           python3 build-system/Make/Make.py build \
+            --buildNumber 100 \
+            --configuration release_arm64 \
+            --xcodeManagedCodesigning \
             --bundle_id "com.legram.ios" \
             --display_name "Legram" \
             --api_id "${{ secrets.TELEGRAM_API_ID }}" \

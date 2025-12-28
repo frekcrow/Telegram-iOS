@@ -1,7 +1,7 @@
-name: Build Legram (Clean Build)
+name: Build Legram (Final Version)
 
 on:
-  workflow_dispatch: # للتشغيل اليدوي من قبلك
+  workflow_dispatch:
 
 jobs:
   build:
@@ -10,7 +10,6 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
         with:
-          # الآن سيقوم السيرفر بتحميل كل شيء تلقائياً لأن الروابط أصبحت صحيحة
           submodules: recursive
           fetch-depth: 1
 
@@ -25,12 +24,11 @@ jobs:
 
       - name: Build Legram IPA
         run: |
-          python3 build-system/Make/Make.py \
+          python3 build-system/Make/Make.py build \
             --bundle_id "com.legram.ios" \
             --display_name "Legram" \
             --api_id "${{ secrets.TELEGRAM_API_ID }}" \
-            --api_hash "${{ secrets.TELEGRAM_API_HASH }}" \
-            build
+            --api_hash "${{ secrets.TELEGRAM_API_HASH }}"
 
       - name: Upload IPA
         uses: actions/upload-artifact@v4

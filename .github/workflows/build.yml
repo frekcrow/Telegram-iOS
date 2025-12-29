@@ -1,4 +1,4 @@
-name: Build Legram (Final Version - Fixed Path)
+name: Build Legram (Final Config Fix)
 
 on:
   workflow_dispatch:
@@ -18,11 +18,27 @@ jobs:
 
       - name: Prepare Configuration
         run: |
+          # إنشاء ملف build_variables.conf
           echo "api_id = ${{ secrets.TELEGRAM_API_ID }}" > build_variables.conf
           echo "api_hash = ${{ secrets.TELEGRAM_API_HASH }}" >> build_variables.conf
-          echo "bundle_id = com.legram.ios" >> build_variables.conf
-          # أنشأنا الملف هنا
-          echo "{}" > app_config.json
+          
+          # إنشاء ملف app_config.json بالبيانات التي طلبها النظام حرفياً
+          cat <<EOF > app_config.json
+          {
+            "bundle_id": "com.legram.ios",
+            "api_id": "${{ secrets.TELEGRAM_API_ID }}",
+            "api_hash": "${{ secrets.TELEGRAM_API_HASH }}",
+            "team_id": "1234567890",
+            "app_center_id": "0",
+            "is_internal_build": false,
+            "is_appstore_build": false,
+            "appstore_id": "0",
+            "app_specific_url_scheme": "legram",
+            "premium_iap_product_id": "com.legram.premium",
+            "enable_siri": false,
+            "enable_icloud": false
+          }
+          EOF
 
       - name: Build Legram IPA
         run: |

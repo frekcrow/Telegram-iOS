@@ -1,4 +1,4 @@
-name: Build Legram (Structure Fix)
+name: Build Legram (Final Structure Fix)
 
 on:
   workflow_dispatch:
@@ -16,13 +16,13 @@ jobs:
       - name: Install Bazel
         run: brew install bazelisk
 
-      - name: Prepare Configuration Structure
+      - name: Prepare Configuration
         run: |
-          # 1. إنشاء الهيكل الذي يتوقعه نظام تيليجرام
-          mkdir -p config/provisioning
+          # 1. إنشاء الهيكل القياسي لمستودع تيليجرام
+          mkdir -p build-input/data/provisioning
           
-          # 2. إنشاء ملف الإعدادات داخل مجلد config
-          cat <<EOF > config/config.json
+          # 2. إنشاء ملف الإعدادات في المكان المتوقع
+          cat <<EOF > build-input/data/config.json
           {
             "bundle_id": "com.legram.ios",
             "api_id": "${{ secrets.TELEGRAM_API_ID }}",
@@ -39,15 +39,24 @@ jobs:
           }
           EOF
 
-          # 3. إنشاء الشهادات الوهمية داخل المجلد الصحيح
+          # 3. إنشاء الشهادات الوهمية
           for f in Telegram Share NotificationService NotificationContent Widget Intents; do
-            touch config/provisioning/$f.mobileprovision
+            touch build-input/data/provisioning/$f.mobileprovision
           done
 
-          # 4. كتابة ملف التعريف لـ Bazel ليعرف أن هذه الملفات موجودة
-          echo 'exports_files(glob(["*.mobileprovision"]))' > config/provisioning/BUILD
+          # 4. ملف BUILD بطريقة تعريف صريحة (هذا هو مفتاح الحل)
+          cat <<EOF > build-input/data/provisioning/BUILD
+          exports_files([
+              "Telegram.mobileprovision",
+              "Share.mobileprovision",
+              "NotificationService.mobileprovision",
+              "NotificationContent.mobileprovision",
+              "Widget.mobileprovision",
+              "Intents.mobileprovision",
+          ])
+          EOF
           
-          # 5. ملف المتغيرات الأساسي
+          # 5. ملف المتغيرات
           echo "api_id = ${{ secrets.TELEGRAM_API_ID }}" > build_variables.conf
           echo "api_hash = ${{ secrets.TELEGRAM_API_HASH }}" >> build_variables.conf
 
@@ -58,7 +67,7 @@ jobs:
             --overrideBazelVersion \
             build \
             --buildNumber 100 \
-            --configurationPath config/config.json \
+            --configurationPath build-input/data/config.json \
             --configuration release_arm64 \
             --xcodeManagedCodesigning
 

@@ -1,4 +1,4 @@
-name: Build Legram (Provisioning Fix)
+name: Build Legram (Structure Fix)
 
 on:
   workflow_dispatch:
@@ -16,13 +16,13 @@ jobs:
       - name: Install Bazel
         run: brew install bazelisk
 
-      - name: Prepare Configuration
+      - name: Prepare Configuration Structure
         run: |
-          # 1. إنشاء ملفات الإعداد الأساسية
-          echo "api_id = ${{ secrets.TELEGRAM_API_ID }}" > build_variables.conf
-          echo "api_hash = ${{ secrets.TELEGRAM_API_HASH }}" >> build_variables.conf
+          # 1. إنشاء الهيكل الذي يتوقعه نظام تيليجرام
+          mkdir -p config/provisioning
           
-          cat <<EOF > app_config.json
+          # 2. إنشاء ملف الإعدادات داخل مجلد config
+          cat <<EOF > config/config.json
           {
             "bundle_id": "com.legram.ios",
             "api_id": "${{ secrets.TELEGRAM_API_ID }}",
@@ -39,17 +39,17 @@ jobs:
           }
           EOF
 
-          # 2. خدعة الشهادات: إنشاء مجلد وهمي للشهادات لإرضاء Bazel
-          mkdir -p provisioning
-          touch provisioning/Telegram.mobileprovision
-          touch provisioning/Share.mobileprovision
-          touch provisioning/NotificationService.mobileprovision
-          touch provisioning/NotificationContent.mobileprovision
-          touch provisioning/Widget.mobileprovision
-          touch provisioning/Intents.mobileprovision
+          # 3. إنشاء الشهادات الوهمية داخل المجلد الصحيح
+          for f in Telegram Share NotificationService NotificationContent Widget Intents; do
+            touch config/provisioning/$f.mobileprovision
+          done
+
+          # 4. كتابة ملف التعريف لـ Bazel ليعرف أن هذه الملفات موجودة
+          echo 'exports_files(glob(["*.mobileprovision"]))' > config/provisioning/BUILD
           
-          # إنشاء ملف BUILD للمجلد لكي يراه Bazel
-          echo 'exports_files(glob(["*.mobileprovision"]))' > provisioning/BUILD
+          # 5. ملف المتغيرات الأساسي
+          echo "api_id = ${{ secrets.TELEGRAM_API_ID }}" > build_variables.conf
+          echo "api_hash = ${{ secrets.TELEGRAM_API_HASH }}" >> build_variables.conf
 
       - name: Build Legram IPA
         run: |
@@ -58,7 +58,7 @@ jobs:
             --overrideBazelVersion \
             build \
             --buildNumber 100 \
-            --configurationPath app_config.json \
+            --configurationPath config/config.json \
             --configuration release_arm64 \
             --xcodeManagedCodesigning
 

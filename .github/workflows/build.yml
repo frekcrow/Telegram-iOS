@@ -1,4 +1,4 @@
-name: Build Legram (Final Config Fix)
+name: Build Legram (Provisioning Fix)
 
 on:
   workflow_dispatch:
@@ -18,11 +18,10 @@ jobs:
 
       - name: Prepare Configuration
         run: |
-          # إنشاء ملف build_variables.conf
+          # 1. إنشاء ملفات الإعداد الأساسية
           echo "api_id = ${{ secrets.TELEGRAM_API_ID }}" > build_variables.conf
           echo "api_hash = ${{ secrets.TELEGRAM_API_HASH }}" >> build_variables.conf
           
-          # إنشاء ملف app_config.json بالبيانات التي طلبها النظام حرفياً
           cat <<EOF > app_config.json
           {
             "bundle_id": "com.legram.ios",
@@ -39,6 +38,18 @@ jobs:
             "enable_icloud": false
           }
           EOF
+
+          # 2. خدعة الشهادات: إنشاء مجلد وهمي للشهادات لإرضاء Bazel
+          mkdir -p provisioning
+          touch provisioning/Telegram.mobileprovision
+          touch provisioning/Share.mobileprovision
+          touch provisioning/NotificationService.mobileprovision
+          touch provisioning/NotificationContent.mobileprovision
+          touch provisioning/Widget.mobileprovision
+          touch provisioning/Intents.mobileprovision
+          
+          # إنشاء ملف BUILD للمجلد لكي يراه Bazel
+          echo 'exports_files(glob(["*.mobileprovision"]))' > provisioning/BUILD
 
       - name: Build Legram IPA
         run: |

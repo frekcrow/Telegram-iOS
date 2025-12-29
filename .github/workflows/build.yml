@@ -1,4 +1,4 @@
-name: Build Legram (Final Override)
+name: Build Legram (Final Version - Fixed Path)
 
 on:
   workflow_dispatch:
@@ -21,17 +21,17 @@ jobs:
           echo "api_id = ${{ secrets.TELEGRAM_API_ID }}" > build_variables.conf
           echo "api_hash = ${{ secrets.TELEGRAM_API_HASH }}" >> build_variables.conf
           echo "bundle_id = com.legram.ios" >> build_variables.conf
+          # أنشأنا الملف هنا
           echo "{}" > app_config.json
 
       - name: Build Legram IPA
         run: |
-          # أضفنا أوامر التجاوز هنا قبل كلمة build
           python3 build-system/Make/Make.py \
             --overrideXcodeVersion \
             --overrideBazelVersion \
             build \
             --buildNumber 100 \
-            --configurationPath . \
+            --configurationPath app_config.json \
             --configuration release_arm64 \
             --xcodeManagedCodesigning
 

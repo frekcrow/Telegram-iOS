@@ -1,4 +1,4 @@
-name: Build Legram (Bazel 8.5.1 Optimized)
+name: Build Legram (Final Bazel 8 Fix)
 
 on:
   workflow_dispatch:
@@ -13,32 +13,51 @@ jobs:
           submodules: recursive
           fetch-depth: 1
 
-      - name: Install Bazel
+      - name: Install Tools
         run: brew install bazelisk
+
+      - name: 🛠 Force Bazel 8 Compatibility
+        run: |
+          # حقن إعدادات التوافق مباشرة في ملف الإعدادات الخاص بـ Bazel
+          # هذا يغنينا عن تمرير الأوامر عبر سكريبت Make.py
+          echo "common --noenable_bzlmod" >> .bazelrc
+          echo "common --enable_workspace" >> .bazelrc
+          echo "✅ Bazel forced into legacy compatibility mode."
 
       - name: 🛠 Patch Core (Anti-Delete)
         run: |
-          # حقن ميزة منع حذف الرسائل
+          # حقن ميزة منع حذف الرسائل برمجياً في كل مكان محتمل
           grep -rl "case let .deleteMessages(ids):" submodules/ | xargs sed -i '' 's/case let .deleteMessages(ids):/case .deleteMessages(_): return .complete/g' || true
+          echo "✅ Anti-Delete patch applied."
 
-      - name: 🔐 Prepare Provisioning (Explicit Targets)
+      - name: 🔐 Prepare Provisioning (Manual Names)
         run: |
           mkdir -p build-input/data/provisioning
           echo "${{ secrets.PROVISIONING_BASE64 }}" | base64 --decode > build-input/data/provisioning/Telegram.mobileprovision
           
-          # استنساخ الملفات بالأسماء التي يطلبها النظام
+          # استنساخ الملف بالأسماء التي صرخ النظام طلباً لها في السجلات السابقة
           cd build-input/data/provisioning
           for name in Share NotificationService NotificationContent Widget Intents SiriIntents BroadcastUpload; do
             cp Telegram.mobileprovision $name.mobileprovision
           done
           
-          # إنشاء ملف BUILD صريح (يتوافق مع معايير Bazel 8)
+          # إنشاء ملف BUILD الصريح جداً لتعريف الأهداف
           cat <<EOF > BUILD
           package(default_visibility = ["//visibility:public"])
-          exports_files(glob(["*.mobileprovision"]))
+          exports_files([
+              "Telegram.mobileprovision",
+              "Share.mobileprovision",
+              "NotificationService.mobileprovision",
+              "NotificationContent.mobileprovision",
+              "Widget.mobileprovision",
+              "Intents.mobileprovision",
+              "SiriIntents.mobileprovision",
+              "BroadcastUpload.mobileprovision",
+          ])
           EOF
+          cd ../../../
 
-      - name: 🔑 Install Certificate
+      - name: 🔑 Install Signing Certificate
         run: |
           echo "${{ secrets.P12_BASE64 }}" | base64 --decode > certificate.p12
           KEYCHAIN_PATH=$RUNNER_TEMP/app-signing.keychain-db
@@ -65,10 +84,10 @@ jobs:
           }
           EOF
 
-      - name: 🚀 Build IPA (Bzlmod Disabled)
+      - name: 🚀 Build IPA
         run: |
-          # الإضافة السحرية هنا: --bazel_options=--noenable_bzlmod
-          # هذا يخبر Bazel 8.5.1 بأن يتجاهل النظام الجديد ويعود للطريقة المستقرة
+          # تشغيل البناء بدون الأوامر التي رفضها السكريبت
+          # الإعدادات الآن يتم سحبها تلقائياً من ملف .bazelrc
           python3 build-system/Make/Make.py \
             --overrideXcodeVersion \
             --overrideBazelVersion \
@@ -76,11 +95,10 @@ jobs:
             --buildNumber 1 \
             --configurationPath build-input/data/config.json \
             --configuration release_arm64 \
-            --xcodeManagedCodesigning \
-            --bazel_options=--noenable_bzlmod
+            --xcodeManagedCodesigning
 
-      - name: 📦 Archive
+      - name: 📦 Upload IPA
         uses: actions/upload-artifact@v4
         with:
-          name: Legram-V8-Stable
+          name: Legram-V8-Stable-Build
           path: build/artifacts/*.ipa

@@ -1,4 +1,4 @@
-name: Legram Final Build (KeyError Fixed)
+name: Legram Final Build (Official Repair)
 
 on:
   workflow_dispatch:
@@ -16,18 +16,18 @@ jobs:
       - name: Install Tools
         run: brew install bazelisk
 
-      - name: ⚙️ Fix Bazel 8 Compatibility
+      - name: ⚙️ Official Bazel 8 Compatibility (Append Mode)
         run: |
-          # منع Bazel 8 من تعطيل الـ Workspace (حل مشكلة skylib)
-          echo "common --enable_workspace" > .bazelrc
+          # نستخدم >> للإضافة وليس > للمسح، لكي لا نفقد إعدادات تيليجرام الأصلية
+          echo "common --enable_workspace" >> .bazelrc
           echo "common --noenable_bzlmod" >> .bazelrc
+          echo "✅ Official Bazel 8 flags appended to existing config."
 
-      - name: 🏗 Prepare All Configuration Files
+      - name: 🏗 Prepare Official Configuration
         run: |
           mkdir -p build-input/data/provisioning
           
-          # 1. ملف config.json المكتمل (لإيقاف KeyError)
-          # أضفت كل الحقول التي طالب بها السكريبت في السجل الأخير
+          # 1. ملف config.json المكتمل (لحل KeyError رسمياً)
           cat <<EOF > build-input/data/config.json
           {
             "bundle_id": "com.CommitteeSupervision.gov",
@@ -46,7 +46,7 @@ jobs:
           }
           EOF
 
-          # 2. ملف variables.bzl (مطابق للـ JSON لضمان توافق Bazel)
+          # 2. ملف variables.bzl المطلوب من نظام البناء
           cat <<EOF > build-input/data/variables.bzl
           bundle_id = "com.CommitteeSupervision.gov"
           api_id = "${{ secrets.TELEGRAM_API_ID }}"
@@ -59,25 +59,25 @@ jobs:
           EOF
 
           # 3. ملف BUILD لمستودع البيانات
-          echo 'exports_files(["variables.bzl", "config.json"])' > build-input/data/BUILD
+          echo 'package(default_visibility = ["//visibility:public"])' > build-input/data/BUILD
+          echo 'exports_files(["variables.bzl", "config.json"])' >> build-input/data/BUILD
 
-      - name: 🔐 Setup Provisioning Profiles
+      - name: 🔐 Provisioning (Official Structure)
         run: |
           echo "${{ secrets.PROVISIONING_BASE64 }}" | base64 --decode > build-input/data/provisioning/Telegram.mobileprovision
           cd build-input/data/provisioning
-          # تكرار الملف لكل الأهداف المطلوبة برمجياً
+          # تكرار الملف لكل الأهداف المطلوبة برمجياً داخل مشروع تيليجرام
           for name in Telegram Share NotificationService NotificationContent Widget Intents SiriIntents BroadcastUpload ShareExtension NotificationServiceExtension; do
             cp Telegram.mobileprovision \$name.mobileprovision
           done
           echo 'package(default_visibility = ["//visibility:public"])' > BUILD
           echo 'exports_files(glob(["*.mobileprovision"]))' >> BUILD
 
-      - name: 🔗 Link Local Repository
+      - name: 🔗 Link Repository (Official WORKSPACE)
         run: |
-          # إضافة تعريف المستودع في بداية WORKSPACE
-          sed -i '' '1i\
-          local_repository(name = "build_configuration", path = "build-input/data")\
-          ' WORKSPACE
+          # إضافة المستودع في نهاية الملف لضمان استقرار الـ Load statements
+          echo "" >> WORKSPACE
+          echo 'local_repository(name = "build_configuration", path = "build-input/data")' >> WORKSPACE
 
       - name: 🔑 Import Signing Certificate
         run: |
@@ -93,7 +93,7 @@ jobs:
 
       - name: 🚀 Start Official Build
         run: |
-          # تجاوز فحص النسخ وتشغيل البناء الفعلي
+          # سكريبت تيليجرام سيستخدم الآن Bazel 8 مع الحفاظ على إعداداته الأصلية
           python3 build-system/Make/Make.py \
             --overrideXcodeVersion \
             --overrideBazelVersion \
@@ -106,5 +106,5 @@ jobs:
       - name: 📦 Upload IPA
         uses: actions/upload-artifact@v4
         with:
-          name: Legram-Final-Stable
+          name: Legram-Official-Release
           path: build/artifacts/*.ipa

@@ -1,4 +1,4 @@
-name: Build Legram (Final Stable)
+name: Build Legram (Final Stable Version)
 
 on:
   workflow_dispatch:
@@ -13,59 +13,74 @@ jobs:
           submodules: recursive
           fetch-depth: 1
 
-      - name: Install Tools
+      - name: Install Bazel
         run: brew install bazelisk
 
       - name: 🛠 Automatic Patch (Anti-Delete)
         run: |
           echo "Searching for deletion logic in all submodules..."
-          # البحث عن أي ملف يحتوي على منطق حذف الرسائل وتعديله فوراً
-          # نحن نستهدف الدالة التي تتعامل مع deleteMessages في الـ SyncCore
+          # هذا الأمر يبحث في كل الملفات عن كود الحذف ويقوم بتعطيله برمجياً
           grep -rl "case let .deleteMessages(ids):" submodules/ | xargs sed -i '' 's/case let .deleteMessages(ids):/case .deleteMessages(_): return .complete/g' || true
           echo "✅ Patch applied to any matching files found."
 
       - name: Prepare Signing Identity
         run: |
-          # إنشاء المسار الذي يطلبه نظام بناء تيليجرام حصراً
+          # إنشاء المسارات المطلوبة
           mkdir -p build-input/data/provisioning
           
+          # فك تشفير الشهادة وملف التوقيع
           echo "${{ secrets.P12_BASE64 }}" | base64 --decode > certificate.p12
           echo "${{ secrets.PROVISIONING_BASE64 }}" | base64 --decode > build-input/data/provisioning/Telegram.mobileprovision
           
-          # نسخ الملف لكل الأسماء المتوقعة (بناءً على أخطاء Bazel السابقة)
+          # نسخ الملف لكل الأسماء التي يطلبها نظام بناء تيليجرام
           cd build-input/data/provisioning
-          for name in Share NotificationService NotificationContent Widget Intents SiriIntents BroadcastUpload; do
-            cp Telegram.mobileprovision $name.mobileprovision
+          EXTENSIONS=("Share" "NotificationService" "NotificationContent" "Widget" "Intents" "SiriIntents" "BroadcastUpload" "NotificationServiceExtension" "ShareExtension")
+          for ext in "${EXTENSIONS[@]}"; do
+            cp Telegram.mobileprovision $ext.mobileprovision
           done
           cd ../../../
 
-          # إعداد الـ Keychain لتوقيع التطبيق
+          # إعداد الـ Keychain (تثبيت الشهادة في الماك)
           KEYCHAIN_PATH=$RUNNER_TEMP/app-signing.keychain-db
           security create-keychain -p "" "$KEYCHAIN_PATH"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
+          security unlock-keychain -p "" "$KEYCHAIN_PATH"
           security import certificate.p12 -k "$KEYCHAIN_PATH" -P "${{ secrets.P12_PASSWORD }}" -A
           security list-keychain -d user -s "$KEYCHAIN_PATH"
 
       - name: Create Definitive BUILD File
         run: |
-          # هذا الملف يحل مشكلة 'no such target' نهائياً بجعل كل الملفات أهدافاً عامة
+          # تعريف الملفات كأهداف رسمية لنظام Bazel
           cat <<EOF > build-input/data/provisioning/BUILD
           package(default_visibility = ["//visibility:public"])
           exports_files(glob(["*.mobileprovision"]))
           EOF
 
-      - name: Configure Telegram Build
+      - name: Setup Config JSON (Fixing KeyError)
         run: |
+          # هذا الملف يحتوي على كافة المفاتيح التي طلبها نظام البناء في السجلات السابقة
           cat <<EOF > build-input/data/config.json
           {
             "bundle_id": "com.CommitteeSupervision.gov",
             "api_id": "${{ secrets.TELEGRAM_API_ID }}",
             "api_hash": "${{ secrets.TELEGRAM_API_HASH }}",
             "team_id": "9NS9KBTAFV",
-            "app_specific_url_scheme": "legram"
+            "app_center_id": "0",
+            "is_internal_build": false,
+            "is_appstore_build": false,
+            "appstore_id": "0",
+            "app_specific_url_scheme": "legram",
+            "premium_iap_product_id": "com.legram.premium",
+            "enable_siri": false,
+            "enable_icloud": false
           }
           EOF
+          
+          # إعداد متغيرات البيئة
+          echo "api_id = ${{ secrets.TELEGRAM_API_ID }}" > build_variables.conf
+          echo "api_hash = ${{ secrets.TELEGRAM_API_HASH }}" >> build_variables.conf
 
-      - name: 🚀 Build IPA
+      - name: 🚀 Build Legram IPA
         run: |
           python3 build-system/Make/Make.py \
             --overrideXcodeVersion \
@@ -79,5 +94,5 @@ jobs:
       - name: Upload Finished IPA
         uses: actions/upload-artifact@v4
         with:
-          name: Legram-AntiDelete-Official
+          name: Legram-Official-Package
           path: build/artifacts/*.ipa

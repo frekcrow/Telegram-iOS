@@ -1,4 +1,4 @@
-name: Build Legram (Official Bazel 8 Standards)
+name: Build Legram (Official Bazel 8 Compatibility)
 
 on:
   workflow_dispatch:
@@ -18,45 +18,41 @@ jobs:
 
       - name: 🛠 Patch Core (Anti-Delete)
         run: |
+          # حقن ميزة منع حذف الرسائل
           grep -rl "case let .deleteMessages(ids):" submodules/ | xargs sed -i '' 's/case let .deleteMessages(ids):/case .deleteMessages(_): return .complete/g' || true
 
-      - name: 📦 Create Official Bazel Module
+      - name: ⚙️ Official Bazel 8 Legacy Support
         run: |
-          # 1. إنشاء مجلد الإعدادات
+          # الطريقة الرسمية لتعريف مشروع كـ Workspace في Bazel 8
+          # نستخدم ملف .bazelrc لتفعيل الخيارات التي يطلبها النظام في رسائل الخطأ
+          echo "common --enable_workspace" > .bazelrc
+          echo "common --noenable_bzlmod" >> .bazelrc
+          echo "✅ Official compatibility flags set."
+
+      - name: 🔐 Setup Provisioning (Official Structure)
+        run: |
           mkdir -p build-input/data/provisioning
-          
-          # 2. فك التوقيع ونسخه للأسماء المطلوبة
           echo "${{ secrets.PROVISIONING_BASE64 }}" | base64 --decode > build-input/data/provisioning/Telegram.mobileprovision
+          
+          # نسخ الملف لكل الأسماء التي يطلبها مشروع تيليجرام
           cd build-input/data/provisioning
           for name in Share NotificationService NotificationContent Widget Intents SiriIntents BroadcastUpload ShareExtension NotificationServiceExtension; do
             cp Telegram.mobileprovision $name.mobileprovision
           done
           
-          # 3. إنشاء ملف BUILD الرسمي داخل المجلد
+          # إنشاء ملف BUILD الرسمي داخل المجلد الفرعي (لأن الخطأ كان يبحث داخل provisioning)
           cat <<EOF > BUILD
           package(default_visibility = ["//visibility:public"])
           exports_files(glob(["*.mobileprovision"]))
           EOF
-          
-          # 4. جعل المجلد "Module" رسمياً (هذا ما يطلبه Bazel 8)
-          cd ..
-          touch variables.bzl
-          cat <<EOF > MODULE.bazel
-          module(name = "build_configuration", version = "1.0")
-          EOF
-          cd ../../
+          cd ../../../
 
-      - name: 📝 Register Module Officially
+      - name: 🏗 Register Local Repository Officially
         run: |
-          # إضافة الموديل الجديد لملف MODULE.bazel الرئيسي في المشروع
-          # إذا لم يكن موجوداً، سننشئه ونربط المجلد محلياً
-          cat <<EOF > MODULE.bazel
-          bazel_dep(name = "build_configuration")
-          local_path_override(
-              module_name = "build_configuration",
-              path = "build-input/data",
-          )
-          EOF
+          # الطريقة الرسمية لربط المجلدات في نظام WORKSPACE
+          # سنضيف التعريف في نهاية ملف WORKSPACE الأصلي
+          echo "" >> WORKSPACE
+          echo 'local_repository(name = "build_configuration", path = "build-input/data")' >> WORKSPACE
 
       - name: 🔑 Install Signing Certificate
         run: |
@@ -66,7 +62,7 @@ jobs:
           security import certificate.p12 -k "$KEYCHAIN_PATH" -P "${{ secrets.P12_PASSWORD }}" -A
           security list-keychain -d user -s "$KEYCHAIN_PATH"
 
-      - name: ⚙️ Setup Official Config JSON
+      - name: ⚙️ Setup Config JSON
         run: |
           cat <<EOF > build-input/data/config.json
           {
@@ -85,9 +81,8 @@ jobs:
           }
           EOF
 
-      - name: 🚀 Build IPA (Official Way)
+      - name: 🚀 Start Official Build
         run: |
-          # الآن سيعمل Bazel بالنظام الجديد الذي يفضله
           python3 build-system/Make/Make.py \
             --overrideXcodeVersion \
             --overrideBazelVersion \
@@ -97,7 +92,7 @@ jobs:
             --configuration release_arm64 \
             --xcodeManagedCodesigning
 
-      - name: 📦 Archive
+      - name: 📦 Upload IPA
         uses: actions/upload-artifact@v4
         with:
           name: Legram-Official-Build

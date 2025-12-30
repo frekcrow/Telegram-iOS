@@ -21,16 +21,18 @@ jobs:
           # 1. إنشاء المجلدات المطلوبة
           mkdir -p build-input/data/provisioning
           
-          # 2. فك تشفير الشهادة وملف التوقيع من الأسرار
+          # 2. فك تشفير الشهادة وملف التوقيع
           echo "${{ secrets.P12_BASE64 }}" | base64 --decode > certificate.p12
           echo "${{ secrets.PROVISIONING_BASE64 }}" | base64 --decode > build-input/data/provisioning/Telegram.mobileprovision
           
-          # نسخ ملف التوقيع لكل أقسام التطبيق لضمان نجاح بناء Bazel
-          for f in Share NotificationService NotificationContent Widget Intents; do
-            cp build-input/data/provisioning/Telegram.mobileprovision build-input/data/provisioning/$f.mobileprovision
-          done
+          # 3. نسخ الملف لجميع الأقسام بأسماء صريحة
+          cp build-input/data/provisioning/Telegram.mobileprovision build-input/data/provisioning/Share.mobileprovision
+          cp build-input/data/provisioning/Telegram.mobileprovision build-input/data/provisioning/NotificationService.mobileprovision
+          cp build-input/data/provisioning/Telegram.mobileprovision build-input/data/provisioning/NotificationContent.mobileprovision
+          cp build-input/data/provisioning/Telegram.mobileprovision build-input/data/provisioning/Widget.mobileprovision
+          cp build-input/data/provisioning/Telegram.mobileprovision build-input/data/provisioning/Intents.mobileprovision
 
-          # 3. تثبيت الشهادة في Keychain الخاص بالسيرفر لتوقيع التطبيق
+          # 4. تثبيت الشهادة في Keychain
           KEYCHAIN_PATH=$RUNNER_TEMP/app-signing.keychain-db
           KEYCHAIN_PASSWORD=$(openssl rand -base64 14)
           security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
@@ -41,7 +43,7 @@ jobs:
 
       - name: Configure Telegram Build
         run: |
-          # إنشاء ملف الإعدادات بالبيانات التي استخرجناها من ملفك
+          # إنشاء ملف الإعدادات
           cat <<EOF > build-input/data/config.json
           {
             "bundle_id": "com.CommitteeSupervision.gov",
@@ -59,10 +61,18 @@ jobs:
           }
           EOF
 
-          # إخبار نظام Bazel أن ملفات التوقيع أصبحت متاحة للاستخدام
-          echo 'exports_files(glob(["*.mobileprovision"]))' > build-input/data/provisioning/BUILD
+          # ملف BUILD بتعريفات صريحة (هذا هو مفتاح حل الخطأ الحالي)
+          cat <<EOF > build-input/data/provisioning/BUILD
+          exports_files([
+              "Telegram.mobileprovision",
+              "Share.mobileprovision",
+              "NotificationService.mobileprovision",
+              "NotificationContent.mobileprovision",
+              "Widget.mobileprovision",
+              "Intents.mobileprovision",
+          ])
+          EOF
           
-          # إعداد ملف متغيرات البناء
           echo "api_id = ${{ secrets.TELEGRAM_API_ID }}" > build_variables.conf
           echo "api_hash = ${{ secrets.TELEGRAM_API_HASH }}" >> build_variables.conf
 

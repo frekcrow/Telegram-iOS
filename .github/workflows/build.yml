@@ -18,32 +18,28 @@ jobs:
 
       - name: Prepare Certificates & Provisioning
         run: |
-          # 1. إنشاء المجلدات المطلوبة
+          # 1. إنشاء المجلدات
           mkdir -p build-input/data/provisioning
           
-          # 2. فك تشفير الشهادة وملف التوقيع
+          # 2. فك التشفير
           echo "${{ secrets.P12_BASE64 }}" | base64 --decode > certificate.p12
           echo "${{ secrets.PROVISIONING_BASE64 }}" | base64 --decode > build-input/data/provisioning/Telegram.mobileprovision
           
-          # 3. نسخ الملف لجميع الأقسام بأسماء صريحة
-          cp build-input/data/provisioning/Telegram.mobileprovision build-input/data/provisioning/Share.mobileprovision
-          cp build-input/data/provisioning/Telegram.mobileprovision build-input/data/provisioning/NotificationService.mobileprovision
-          cp build-input/data/provisioning/Telegram.mobileprovision build-input/data/provisioning/NotificationContent.mobileprovision
-          cp build-input/data/provisioning/Telegram.mobileprovision build-input/data/provisioning/Widget.mobileprovision
-          cp build-input/data/provisioning/Telegram.mobileprovision build-input/data/provisioning/Intents.mobileprovision
+          # 3. نسخ الملفات بأسماء واضحة
+          for f in Share NotificationService NotificationContent Widget Intents; do
+            cp build-input/data/provisioning/Telegram.mobileprovision build-input/data/provisioning/$f.mobileprovision
+          done
 
-          # 4. تثبيت الشهادة في Keychain
+          # 4. تثبيت الشهادة
           KEYCHAIN_PATH=$RUNNER_TEMP/app-signing.keychain-db
           KEYCHAIN_PASSWORD=$(openssl rand -base64 14)
           security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
-          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
           security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
           security import certificate.p12 -k "$KEYCHAIN_PATH" -P "${{ secrets.P12_PASSWORD }}" -A
           security list-keychain -d user -s "$KEYCHAIN_PATH"
 
       - name: Configure Telegram Build
         run: |
-          # إنشاء ملف الإعدادات
           cat <<EOF > build-input/data/config.json
           {
             "bundle_id": "com.CommitteeSupervision.gov",
@@ -61,20 +57,21 @@ jobs:
           }
           EOF
 
-          # ملف BUILD بتعريفات صريحة (هذا هو مفتاح حل الخطأ الحالي)
+          # استخدام filegroup لتعريف كل ملف كهدف (Target) صريح
           cat <<EOF > build-input/data/provisioning/BUILD
-          exports_files([
-              "Telegram.mobileprovision",
-              "Share.mobileprovision",
-              "NotificationService.mobileprovision",
-              "NotificationContent.mobileprovision",
-              "Widget.mobileprovision",
-              "Intents.mobileprovision",
-          ])
+          filegroup(name = "Telegram.mobileprovision", srcs = ["Telegram.mobileprovision"], visibility = ["//visibility:public"])
+          filegroup(name = "Share.mobileprovision", srcs = ["Share.mobileprovision"], visibility = ["//visibility:public"])
+          filegroup(name = "NotificationService.mobileprovision", srcs = ["NotificationService.mobileprovision"], visibility = ["//visibility:public"])
+          filegroup(name = "NotificationContent.mobileprovision", srcs = ["NotificationContent.mobileprovision"], visibility = ["//visibility:public"])
+          filegroup(name = "Widget.mobileprovision", srcs = ["Widget.mobileprovision"], visibility = ["//visibility:public"])
+          filegroup(name = "Intents.mobileprovision", srcs = ["Intents.mobileprovision"], visibility = ["//visibility:public"])
           EOF
           
           echo "api_id = ${{ secrets.TELEGRAM_API_ID }}" > build_variables.conf
           echo "api_hash = ${{ secrets.TELEGRAM_API_HASH }}" >> build_variables.conf
+
+      - name: Verify Provisioning Files (Debug)
+        run: ls -R build-input/data/provisioning/
 
       - name: Build Legram IPA
         run: |

@@ -18,19 +18,19 @@ jobs:
 
       - name: Prepare Certificates & Provisioning
         run: |
-          # 1. إنشاء مجلدات العمل
+          # 1. إنشاء المجلدات المطلوبة
           mkdir -p build-input/data/provisioning
           
-          # 2. فك تشفير الشهادة وملف التوقيع
+          # 2. فك تشفير الشهادة وملف التوقيع من الأسرار
           echo "${{ secrets.P12_BASE64 }}" | base64 --decode > certificate.p12
           echo "${{ secrets.PROVISIONING_BASE64 }}" | base64 --decode > build-input/data/provisioning/Telegram.mobileprovision
           
-          # نسخ ملف التوقيع لكل الإضافات لإرضاء نظام بناء تيليجرام
+          # نسخ ملف التوقيع لكل أقسام التطبيق لضمان نجاح بناء Bazel
           for f in Share NotificationService NotificationContent Widget Intents; do
             cp build-input/data/provisioning/Telegram.mobileprovision build-input/data/provisioning/$f.mobileprovision
           done
 
-          # 3. تثبيت الشهادة في Keychain الخاص بالسيرفر
+          # 3. تثبيت الشهادة في Keychain الخاص بالسيرفر لتوقيع التطبيق
           KEYCHAIN_PATH=$RUNNER_TEMP/app-signing.keychain-db
           KEYCHAIN_PASSWORD=$(openssl rand -base64 14)
           security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
@@ -41,7 +41,7 @@ jobs:
 
       - name: Configure Telegram Build
         run: |
-          # إنشاء ملف الإعدادات بالبيانات الحقيقية التي استخرجتها
+          # إنشاء ملف الإعدادات بالبيانات التي استخرجناها من ملفك
           cat <<EOF > build-input/data/config.json
           {
             "bundle_id": "com.CommitteeSupervision.gov",
@@ -59,10 +59,10 @@ jobs:
           }
           EOF
 
-          # إنشاء ملف BUILD لتعريف الشهادات لـ Bazel
+          # إخبار نظام Bazel أن ملفات التوقيع أصبحت متاحة للاستخدام
           echo 'exports_files(glob(["*.mobileprovision"]))' > build-input/data/provisioning/BUILD
           
-          # إعداد متغيرات البيئة
+          # إعداد ملف متغيرات البناء
           echo "api_id = ${{ secrets.TELEGRAM_API_ID }}" > build_variables.conf
           echo "api_hash = ${{ secrets.TELEGRAM_API_HASH }}" >> build_variables.conf
 
@@ -74,7 +74,8 @@ jobs:
             build \
             --buildNumber 1 \
             --configurationPath build-input/data/config.json \
-            --configuration release_arm64
+            --configuration release_arm64 \
+            --xcodeManagedCodesigning
 
       - name: Upload Finished IPA
         uses: actions/upload-artifact@v4

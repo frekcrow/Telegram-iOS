@@ -1,4 +1,4 @@
-name: Build Legram (Official Release)
+name: Build Legram (Official Stable)
 
 on:
   workflow_dispatch:
@@ -13,32 +13,63 @@ jobs:
           submodules: recursive
           fetch-depth: 1
 
-      - name: Install Bazel
-        run: brew install bazelisk
+      - name: Install Tools
+        run: brew install bazelisk openssl
 
-      - name: Prepare Certificates & Provisioning
+      - name: 🛠 Inject Anti-Delete Feature
         run: |
-          # 1. إنشاء المجلدات
+          # تعديل الملف المسؤول عن مزامنة حذف الرسائل
+          CORE_FILE="submodules/TelegramCore/Sources/StateManagement/ManagedSynchronizeGroupMessagesOperations.swift"
+          if [ -f "$CORE_FILE" ]; then
+            # استبدال وظيفة الحذف برسالة طباعة (لوق) لمنع التنفيذ الفعلي
+            sed -i '' 's/case let .deleteMessages(ids):/case .deleteMessages(_): return .complete/g' "$CORE_FILE"
+            echo "✅ Anti-Delete feature injected into TelegramCore."
+          else
+            echo "❌ Core file not found! Please check the path."
+            exit 1
+          fi
+
+      - name: Prepare Signing Identity
+        run: |
           mkdir -p build-input/data/provisioning
           
-          # 2. فك التشفير
+          # فك تشفير البيانات
           echo "${{ secrets.P12_BASE64 }}" | base64 --decode > certificate.p12
           echo "${{ secrets.PROVISIONING_BASE64 }}" | base64 --decode > build-input/data/provisioning/Telegram.mobileprovision
           
-          # 3. نسخ الملفات بأسماء واضحة
-          for f in Share NotificationService NotificationContent Widget Intents; do
-            cp build-input/data/provisioning/Telegram.mobileprovision build-input/data/provisioning/$f.mobileprovision
+          # الأسماء الحقيقية التي يبحث عنها Bazel (مستخرجة من Telegram/BUILD)
+          EXTENSIONS=("Share" "NotificationService" "NotificationContent" "Widget" "Intents" "SiriIntents" "BroadcastUpload")
+          for ext in "${EXTENSIONS[@]}"; do
+            cp build-input/data/provisioning/Telegram.mobileprovision build-input/data/provisioning/$ext.mobileprovision
           done
 
-          # 4. تثبيت الشهادة
+          # إعداد الـ Keychain
           KEYCHAIN_PATH=$RUNNER_TEMP/app-signing.keychain-db
-          KEYCHAIN_PASSWORD=$(openssl rand -base64 14)
-          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
-          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security create-keychain -p "" "$KEYCHAIN_PATH"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
+          security unlock-keychain -p "" "$KEYCHAIN_PATH"
           security import certificate.p12 -k "$KEYCHAIN_PATH" -P "${{ secrets.P12_PASSWORD }}" -A
           security list-keychain -d user -s "$KEYCHAIN_PATH"
 
-      - name: Configure Telegram Build
+      - name: Create Definitive BUILD File
+        run: |
+          # هذا الملف هو ما يقرأه Bazel للتعرف على أهداف التوقيع
+          cat <<EOF > build-input/data/provisioning/BUILD
+          package(default_visibility = ["//visibility:public"])
+
+          exports_files([
+              "Telegram.mobileprovision",
+              "Share.mobileprovision",
+              "NotificationService.mobileprovision",
+              "NotificationContent.mobileprovision",
+              "Widget.mobileprovision",
+              "Intents.mobileprovision",
+              "SiriIntents.mobileprovision",
+              "BroadcastUpload.mobileprovision",
+          ])
+          EOF
+
+      - name: Setup Config JSON
         run: |
           cat <<EOF > build-input/data/config.json
           {
@@ -49,32 +80,13 @@ jobs:
             "app_center_id": "0",
             "is_internal_build": false,
             "is_appstore_build": false,
-            "appstore_id": "0",
-            "app_specific_url_scheme": "legram",
-            "premium_iap_product_id": "com.legram.premium",
-            "enable_siri": false,
-            "enable_icloud": false
+            "app_specific_url_scheme": "legram"
           }
           EOF
 
-          # استخدام filegroup لتعريف كل ملف كهدف (Target) صريح
-          cat <<EOF > build-input/data/provisioning/BUILD
-          filegroup(name = "Telegram.mobileprovision", srcs = ["Telegram.mobileprovision"], visibility = ["//visibility:public"])
-          filegroup(name = "Share.mobileprovision", srcs = ["Share.mobileprovision"], visibility = ["//visibility:public"])
-          filegroup(name = "NotificationService.mobileprovision", srcs = ["NotificationService.mobileprovision"], visibility = ["//visibility:public"])
-          filegroup(name = "NotificationContent.mobileprovision", srcs = ["NotificationContent.mobileprovision"], visibility = ["//visibility:public"])
-          filegroup(name = "Widget.mobileprovision", srcs = ["Widget.mobileprovision"], visibility = ["//visibility:public"])
-          filegroup(name = "Intents.mobileprovision", srcs = ["Intents.mobileprovision"], visibility = ["//visibility:public"])
-          EOF
-          
-          echo "api_id = ${{ secrets.TELEGRAM_API_ID }}" > build_variables.conf
-          echo "api_hash = ${{ secrets.TELEGRAM_API_HASH }}" >> build_variables.conf
-
-      - name: Verify Provisioning Files (Debug)
-        run: ls -R build-input/data/provisioning/
-
-      - name: Build Legram IPA
+      - name: 🚀 Build IPA
         run: |
+          # استخدام Python لتشغيل نظام بناء تيليجرام الرسمي
           python3 build-system/Make/Make.py \
             --overrideXcodeVersion \
             --overrideBazelVersion \
@@ -84,8 +96,8 @@ jobs:
             --configuration release_arm64 \
             --xcodeManagedCodesigning
 
-      - name: Upload Finished IPA
+      - name: Archive Production IPA
         uses: actions/upload-artifact@v4
         with:
-          name: Legram-Official-Package
+          name: Legram-AntiDelete-Final
           path: build/artifacts/*.ipa

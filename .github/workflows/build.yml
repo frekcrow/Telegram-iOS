@@ -1,4 +1,4 @@
-name: Legram Final Restoration (Bazel 6.4.0)
+name: Legram Final Build (The 6.4.0 Foundation)
 
 on:
   workflow_dispatch:
@@ -13,24 +13,28 @@ jobs:
           submodules: recursive
           fetch-depth: 1
 
-      - name: 🛠 Force Bazel 6.4.0
+      - name: 🚀 Force Bazel 6.4.0 Installation
         run: |
-          # سنستخدم Bazelisk لفرض النسخة التي أفهمها تماماً
-          echo "6.4.0" > .bazelversion
-          brew install bazelisk
+          mkdir -p build-input
+          # تنزيل نسخة 6.4.0 المخصصة لـ Apple Silicon (arm64) لأن macos-latest هو M1
+          curl -L https://github.com/bazelbuild/bazel/releases/download/6.4.0/bazel-6.4.0-darwin-arm64 -o build-input/bazel-custom
+          chmod +x build-input/bazel-custom
+          # التأكد من النسخة
+          ./build-input/bazel-custom --version
 
-      - name: 🧹 Clean Legacy Mess
+      - name: ⚙️ Reset Build Environment
         run: |
-          # مسح أي إعدادات حاولنا بها إصلاح Bazel 8 لكي لا تسبب تضارب
+          # تنظيف أي إعدادات سابقة تسببت في مشاكل Bazel 8
           rm -f .bazelrc.user
-          # الحفاظ على الـ .bazelrc الأصلي كما هو دون أي تعديل
           git checkout .bazelrc || true
+          # إجبار bazelisk (إن وُجد) على استخدام 6.4.0
+          echo "6.4.0" > .bazelversion
 
-      - name: 🏗 Prepare Stable Environment
+      - name: 🏗 Prepare Official Configuration
         run: |
           mkdir -p build-input/data/provisioning
           
-          # 1. ملف config.json الكامل (لأن سكريبت Python يطلبه بغض النظر عن نسخة Bazel)
+          # ملف config.json الكامل والشامل (للقضاء على أي KeyError نهائياً)
           cat <<EOF > build-input/data/config.json
           {
             "bundle_id": "com.CommitteeSupervision.gov",
@@ -49,7 +53,7 @@ jobs:
           }
           EOF
 
-          # 2. ملف variables.bzl (المحرك الداخلي لـ Bazel 6)
+          # ملف variables.bzl
           cat <<EOF > build-input/data/variables.bzl
           bundle_id = "com.CommitteeSupervision.gov"
           api_id = "${{ secrets.TELEGRAM_API_ID }}"
@@ -62,8 +66,9 @@ jobs:
           EOF
 
           echo 'exports_files(["variables.bzl", "config.json"])' > build-input/data/BUILD
-          
-          # 3. إعداد ملفات التوقيع
+
+      - name: 🔐 Setup Provisioning & Identity
+        run: |
           echo "${{ secrets.PROVISIONING_BASE64 }}" | base64 --decode > build-input/data/provisioning/Telegram.mobileprovision
           cd build-input/data/provisioning
           for name in Telegram Share NotificationService NotificationContent Widget Intents SiriIntents BroadcastUpload ShareExtension NotificationServiceExtension; do
@@ -72,9 +77,9 @@ jobs:
           echo 'package(default_visibility = ["//visibility:public"])' > BUILD
           echo 'exports_files(glob(["*.mobileprovision"]))' >> BUILD
 
-      - name: 🔗 Stable Workspace Link
+      - name: 🔗 Inject Stable WORKSPACE
         run: |
-          # في Bazel 6، الحقن في WORKSPACE بسيط ومباشر
+          # إضافة تعريف المستودع في أول سطر لضمان الاستقرار في Bazel 6
           sed -i '' '1i\
           local_repository(name = "build_configuration", path = "build-input/data")\
           ' WORKSPACE
@@ -87,14 +92,16 @@ jobs:
           security import certificate.p12 -k "$KEYCHAIN_PATH" -P "${{ secrets.P12_PASSWORD }}" -A
           security list-keychain -d user -s "$KEYCHAIN_PATH"
 
-      - name: 🛠 Anti-Delete Patch
+      - name: 🛠 Patch Core
         run: |
           grep -rl "case let .deleteMessages(ids):" submodules/ | xargs sed -i '' 's/case let .deleteMessages(ids):/case .deleteMessages(_): return .complete/g' || true
 
-      - name: 🚀 Launch Build (The Reliable Way)
+      - name: 🚀 The Final Build (Executing Bazel 6.4.0)
         run: |
-          # هنا سيقوم Bazel 6.4.0 بالعمل في منطقته الآمنة
+          # نستخدم --bazel لتمرير مسار الإصدار 6.4.0 الذي قمنا بتنزيله
+          # ونستخدم --overrideBazelVersion لتجاهل التحقق من الإصدار
           python3 build-system/Make/Make.py \
+            --bazel=$(pwd)/build-input/bazel-custom \
             --overrideXcodeVersion \
             --overrideBazelVersion \
             build \
@@ -103,8 +110,8 @@ jobs:
             --configuration release_arm64 \
             --xcodeManagedCodesigning
 
-      - name: 📦 Archive
+      - name: 📦 Archive Product
         uses: actions/upload-artifact@v4
         with:
-          name: Legram-Stable-6.4.0
+          name: Legram-Final-IPA
           path: build/artifacts/*.ipa

@@ -1,4 +1,4 @@
-name: Build Legram (Final Structure Fix)
+name: Build Legram (Official Release)
 
 on:
   workflow_dispatch:
@@ -16,18 +16,38 @@ jobs:
       - name: Install Bazel
         run: brew install bazelisk
 
-      - name: Prepare Configuration
+      - name: Prepare Certificates & Provisioning
         run: |
-          # 1. إنشاء الهيكل القياسي لمستودع تيليجرام
+          # 1. إنشاء مجلدات العمل
           mkdir -p build-input/data/provisioning
           
-          # 2. إنشاء ملف الإعدادات في المكان المتوقع
+          # 2. فك تشفير الشهادة وملف التوقيع
+          echo "${{ secrets.P12_BASE64 }}" | base64 --decode > certificate.p12
+          echo "${{ secrets.PROVISIONING_BASE64 }}" | base64 --decode > build-input/data/provisioning/Telegram.mobileprovision
+          
+          # نسخ ملف التوقيع لكل الإضافات لإرضاء نظام بناء تيليجرام
+          for f in Share NotificationService NotificationContent Widget Intents; do
+            cp build-input/data/provisioning/Telegram.mobileprovision build-input/data/provisioning/$f.mobileprovision
+          done
+
+          # 3. تثبيت الشهادة في Keychain الخاص بالسيرفر
+          KEYCHAIN_PATH=$RUNNER_TEMP/app-signing.keychain-db
+          KEYCHAIN_PASSWORD=$(openssl rand -base64 14)
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security import certificate.p12 -k "$KEYCHAIN_PATH" -P "${{ secrets.P12_PASSWORD }}" -A
+          security list-keychain -d user -s "$KEYCHAIN_PATH"
+
+      - name: Configure Telegram Build
+        run: |
+          # إنشاء ملف الإعدادات بالبيانات الحقيقية التي استخرجتها
           cat <<EOF > build-input/data/config.json
           {
-            "bundle_id": "com.legram.ios",
+            "bundle_id": "com.CommitteeSupervision.gov",
             "api_id": "${{ secrets.TELEGRAM_API_ID }}",
             "api_hash": "${{ secrets.TELEGRAM_API_HASH }}",
-            "team_id": "1234567890",
+            "team_id": "9NS9KBTAFV",
             "app_center_id": "0",
             "is_internal_build": false,
             "is_appstore_build": false,
@@ -39,24 +59,10 @@ jobs:
           }
           EOF
 
-          # 3. إنشاء الشهادات الوهمية
-          for f in Telegram Share NotificationService NotificationContent Widget Intents; do
-            touch build-input/data/provisioning/$f.mobileprovision
-          done
-
-          # 4. ملف BUILD بطريقة تعريف صريحة (هذا هو مفتاح الحل)
-          cat <<EOF > build-input/data/provisioning/BUILD
-          exports_files([
-              "Telegram.mobileprovision",
-              "Share.mobileprovision",
-              "NotificationService.mobileprovision",
-              "NotificationContent.mobileprovision",
-              "Widget.mobileprovision",
-              "Intents.mobileprovision",
-          ])
-          EOF
+          # إنشاء ملف BUILD لتعريف الشهادات لـ Bazel
+          echo 'exports_files(glob(["*.mobileprovision"]))' > build-input/data/provisioning/BUILD
           
-          # 5. ملف المتغيرات
+          # إعداد متغيرات البيئة
           echo "api_id = ${{ secrets.TELEGRAM_API_ID }}" > build_variables.conf
           echo "api_hash = ${{ secrets.TELEGRAM_API_HASH }}" >> build_variables.conf
 
@@ -66,13 +72,12 @@ jobs:
             --overrideXcodeVersion \
             --overrideBazelVersion \
             build \
-            --buildNumber 100 \
+            --buildNumber 1 \
             --configurationPath build-input/data/config.json \
-            --configuration release_arm64 \
-            --xcodeManagedCodesigning
+            --configuration release_arm64
 
-      - name: Upload IPA
+      - name: Upload Finished IPA
         uses: actions/upload-artifact@v4
         with:
-          name: Legram-Package
+          name: Legram-Official-Package
           path: build/artifacts/*.ipa

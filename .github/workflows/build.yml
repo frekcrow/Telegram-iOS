@@ -1,4 +1,4 @@
-name: Build Legram (Final Bazel 8 Fixed Standards)
+name: Legram Final Build (KeyError Fixed)
 
 on:
   workflow_dispatch:
@@ -16,66 +16,18 @@ jobs:
       - name: Install Tools
         run: brew install bazelisk
 
-      - name: 🛠 Patch Core (Anti-Delete)
+      - name: ⚙️ Fix Bazel 8 Compatibility
         run: |
-          grep -rl "case let .deleteMessages(ids):" submodules/ | xargs sed -i '' 's/case let .deleteMessages(ids):/case .deleteMessages(_): return .complete/g' || true
-
-      - name: ⚙️ Official Bazel 8 Legacy Support
-        run: |
-          # الطريقة الرسمية لإجبار Bazel 8 على قراءة WORKSPACE (لحل مشكلة skylib)
+          # منع Bazel 8 من تعطيل الـ Workspace (حل مشكلة skylib)
           echo "common --enable_workspace" > .bazelrc
           echo "common --noenable_bzlmod" >> .bazelrc
-          echo "✅ Bazel 8 configured to respect WORKSPACE."
 
-      - name: 🏗 Prepare build_configuration Repository
+      - name: 🏗 Prepare All Configuration Files
         run: |
-          # إنشاء الهيكلية المطلوبة برمجياً داخل تيليجرام
           mkdir -p build-input/data/provisioning
           
-          # 1. إنشاء ملف variables.bzl (القطعة الناقصة)
-          # تيليجرام يحتاج هذه المتغيرات لتمريرها إلى القواعد (Rules)
-          cat <<EOF > build-input/data/variables.bzl
-          bundle_id = "com.CommitteeSupervision.gov"
-          api_id = "${{ secrets.TELEGRAM_API_ID }}"
-          api_hash = "${{ secrets.TELEGRAM_API_HASH }}"
-          team_id = "9NS9KBTAFV"
-          version = "11.5.1"
-          build_number = "1"
-          EOF
-
-          # 2. إنشاء ملف BUILD الأساسي في data
-          echo 'exports_files(["variables.bzl", "config.json"])' > build-input/data/BUILD
-
-          # 3. تجهيز التوقيع داخل مجلد provisioning
-          echo "${{ secrets.PROVISIONING_BASE64 }}" | base64 --decode > build-input/data/provisioning/Telegram.mobileprovision
-          cd build-input/data/provisioning
-          # نسخ الملف لكل الأسماء التي قد يطلبها ملف Telegram/BUILD
-          for name in Share NotificationService NotificationContent Widget Intents SiriIntents BroadcastUpload ShareExtension NotificationServiceExtension; do
-            cp Telegram.mobileprovision \$name.mobileprovision
-          done
-          
-          echo 'package(default_visibility = ["//visibility:public"])' > BUILD
-          echo 'exports_files(glob(["*.mobileprovision"]))' >> BUILD
-          cd ../../../
-
-      - name: 🔗 Register Repository in WORKSPACE
-        run: |
-          # الطريقة الرسمية لربط المستودع المحلي في نظام WORKSPACE
-          # سنضيفه في أول السطر لضمان عدم تجاوزه
-          sed -i '' '1i\
-          local_repository(name = "build_configuration", path = "build-input/data")\
-          ' WORKSPACE
-
-      - name: 🔑 Install Signing Certificate
-        run: |
-          echo "${{ secrets.P12_BASE64 }}" | base64 --decode > certificate.p12
-          KEYCHAIN_PATH=$RUNNER_TEMP/app-signing.keychain-db
-          security create-keychain -p "" "$KEYCHAIN_PATH"
-          security import certificate.p12 -k "$KEYCHAIN_PATH" -P "${{ secrets.P12_PASSWORD }}" -A
-          security list-keychain -d user -s "$KEYCHAIN_PATH"
-
-      - name: ⚙️ Setup Config JSON
-        run: |
+          # 1. ملف config.json المكتمل (لإيقاف KeyError)
+          # أضفت كل الحقول التي طالب بها السكريبت في السجل الأخير
           cat <<EOF > build-input/data/config.json
           {
             "bundle_id": "com.CommitteeSupervision.gov",
@@ -85,14 +37,63 @@ jobs:
             "app_center_id": "0",
             "is_internal_build": false,
             "is_appstore_build": false,
-            "app_specific_url_scheme": "legram"
+            "appstore_id": "0",
+            "app_specific_url_scheme": "legram",
+            "premium_iap_product_id": "com.legram.premium",
+            "enable_siri": false,
+            "enable_icloud": false,
+            "sg_config": ""
           }
           EOF
 
+          # 2. ملف variables.bzl (مطابق للـ JSON لضمان توافق Bazel)
+          cat <<EOF > build-input/data/variables.bzl
+          bundle_id = "com.CommitteeSupervision.gov"
+          api_id = "${{ secrets.TELEGRAM_API_ID }}"
+          api_hash = "${{ secrets.TELEGRAM_API_HASH }}"
+          team_id = "9NS9KBTAFV"
+          version = "11.5.1"
+          build_number = "1"
+          enable_siri = false
+          enable_icloud = false
+          EOF
+
+          # 3. ملف BUILD لمستودع البيانات
+          echo 'exports_files(["variables.bzl", "config.json"])' > build-input/data/BUILD
+
+      - name: 🔐 Setup Provisioning Profiles
+        run: |
+          echo "${{ secrets.PROVISIONING_BASE64 }}" | base64 --decode > build-input/data/provisioning/Telegram.mobileprovision
+          cd build-input/data/provisioning
+          # تكرار الملف لكل الأهداف المطلوبة برمجياً
+          for name in Telegram Share NotificationService NotificationContent Widget Intents SiriIntents BroadcastUpload ShareExtension NotificationServiceExtension; do
+            cp Telegram.mobileprovision \$name.mobileprovision
+          done
+          echo 'package(default_visibility = ["//visibility:public"])' > BUILD
+          echo 'exports_files(glob(["*.mobileprovision"]))' >> BUILD
+
+      - name: 🔗 Link Local Repository
+        run: |
+          # إضافة تعريف المستودع في بداية WORKSPACE
+          sed -i '' '1i\
+          local_repository(name = "build_configuration", path = "build-input/data")\
+          ' WORKSPACE
+
+      - name: 🔑 Import Signing Certificate
+        run: |
+          echo "${{ secrets.P12_BASE64 }}" | base64 --decode > certificate.p12
+          KEYCHAIN_PATH=$RUNNER_TEMP/app-signing.keychain-db
+          security create-keychain -p "" "$KEYCHAIN_PATH"
+          security import certificate.p12 -k "$KEYCHAIN_PATH" -P "${{ secrets.P12_PASSWORD }}" -A
+          security list-keychain -d user -s "$KEYCHAIN_PATH"
+
+      - name: 🛠 Patch Core (Anti-Delete)
+        run: |
+          grep -rl "case let .deleteMessages(ids):" submodules/ | xargs sed -i '' 's/case let .deleteMessages(ids):/case .deleteMessages(_): return .complete/g' || true
+
       - name: 🚀 Start Official Build
         run: |
-          # سكريبت تيليجرام سيقوم الآن باستدعاء Bazel 8
-          # وبما أننا فعلنا --enable_workspace، سيجد كل التبعيات
+          # تجاوز فحص النسخ وتشغيل البناء الفعلي
           python3 build-system/Make/Make.py \
             --overrideXcodeVersion \
             --overrideBazelVersion \

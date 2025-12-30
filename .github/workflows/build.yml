@@ -1,4 +1,4 @@
-name: Build Legram (Final Stable Version)
+name: Build Legram (Official Release)
 
 on:
   workflow_dispatch:
@@ -13,52 +13,59 @@ jobs:
           submodules: recursive
           fetch-depth: 1
 
-      - name: Install Bazel
+      - name: Install Tools
         run: brew install bazelisk
 
       - name: 🛠 Automatic Patch (Anti-Delete)
         run: |
-          echo "Searching for deletion logic in all submodules..."
-          # هذا الأمر يبحث في كل الملفات عن كود الحذف ويقوم بتعطيله برمجياً
+          echo "Searching for deletion logic..."
+          # هذا السطر هو الذي نجحنا به سابقاً، سيبقى كما هو لضمان ميزتك
           grep -rl "case let .deleteMessages(ids):" submodules/ | xargs sed -i '' 's/case let .deleteMessages(ids):/case .deleteMessages(_): return .complete/g' || true
-          echo "✅ Patch applied to any matching files found."
+          echo "✅ Anti-Delete feature injected."
 
-      - name: Prepare Signing Identity
+      - name: 🔐 Prepare Signing & Provisioning (Fixed Targets)
         run: |
-          # إنشاء المسارات المطلوبة
+          # 1. إنشاء المجلد المطلوب
           mkdir -p build-input/data/provisioning
           
-          # فك تشفير الشهادة وملف التوقيع
+          # 2. فك تشفير الملفات الأساسية
           echo "${{ secrets.P12_BASE64 }}" | base64 --decode > certificate.p12
           echo "${{ secrets.PROVISIONING_BASE64 }}" | base64 --decode > build-input/data/provisioning/Telegram.mobileprovision
           
-          # نسخ الملف لكل الأسماء التي يطلبها نظام بناء تيليجرام
-          cd build-input/data/provisioning
+          # 3. نسخ ملف التوقيع لكل الأسماء التي يبحث عنها Bazel (بالأسماء الدقيقة)
+          PROV_DIR="build-input/data/provisioning"
           EXTENSIONS=("Share" "NotificationService" "NotificationContent" "Widget" "Intents" "SiriIntents" "BroadcastUpload" "NotificationServiceExtension" "ShareExtension")
+          
           for ext in "${EXTENSIONS[@]}"; do
-            cp Telegram.mobileprovision $ext.mobileprovision
+            cp "$PROV_DIR/Telegram.mobileprovision" "$PROV_DIR/$ext.mobileprovision"
           done
-          cd ../../../
 
-          # إعداد الـ Keychain (تثبيت الشهادة في الماك)
+          # 4. إنشاء ملف BUILD صريح جداً (بدون استخدام glob لضمان التعرف)
+          cat <<EOF > $PROV_DIR/BUILD
+          package(default_visibility = ["//visibility:public"])
+          exports_files([
+              "Telegram.mobileprovision",
+              "Share.mobileprovision",
+              "NotificationService.mobileprovision",
+              "NotificationContent.mobileprovision",
+              "Widget.mobileprovision",
+              "Intents.mobileprovision",
+              "SiriIntents.mobileprovision",
+              "BroadcastUpload.mobileprovision",
+              "NotificationServiceExtension.mobileprovision",
+              "ShareExtension.mobileprovision",
+          ])
+          EOF
+
+          # 5. تثبيت الشهادة في الماك
           KEYCHAIN_PATH=$RUNNER_TEMP/app-signing.keychain-db
           security create-keychain -p "" "$KEYCHAIN_PATH"
-          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
-          security unlock-keychain -p "" "$KEYCHAIN_PATH"
           security import certificate.p12 -k "$KEYCHAIN_PATH" -P "${{ secrets.P12_PASSWORD }}" -A
           security list-keychain -d user -s "$KEYCHAIN_PATH"
 
-      - name: Create Definitive BUILD File
+      - name: ⚙️ Setup Final Config JSON
         run: |
-          # تعريف الملفات كأهداف رسمية لنظام Bazel
-          cat <<EOF > build-input/data/provisioning/BUILD
-          package(default_visibility = ["//visibility:public"])
-          exports_files(glob(["*.mobileprovision"]))
-          EOF
-
-      - name: Setup Config JSON (Fixing KeyError)
-        run: |
-          # هذا الملف يحتوي على كافة المفاتيح التي طلبها نظام البناء في السجلات السابقة
+          # إضافة كافة الحقول المطلوبة لمنع خطأ KeyError
           cat <<EOF > build-input/data/config.json
           {
             "bundle_id": "com.CommitteeSupervision.gov",
@@ -76,11 +83,16 @@ jobs:
           }
           EOF
           
-          # إعداد متغيرات البيئة
           echo "api_id = ${{ secrets.TELEGRAM_API_ID }}" > build_variables.conf
           echo "api_hash = ${{ secrets.TELEGRAM_API_HASH }}" >> build_variables.conf
 
-      - name: 🚀 Build Legram IPA
+      - name: 🔍 Debug Files Structure (Before Build)
+        run: |
+          echo "Current Path: $(pwd)"
+          echo "Provisioning Files List:"
+          ls -R build-input/data/provisioning/
+
+      - name: 🚀 Build IPA
         run: |
           python3 build-system/Make/Make.py \
             --overrideXcodeVersion \
@@ -91,8 +103,8 @@ jobs:
             --configuration release_arm64 \
             --xcodeManagedCodesigning
 
-      - name: Upload Finished IPA
+      - name: 📦 Upload IPA
         uses: actions/upload-artifact@v4
         with:
-          name: Legram-Official-Package
+          name: Legram-Final-Release
           path: build/artifacts/*.ipa

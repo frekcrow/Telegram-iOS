@@ -1,4 +1,4 @@
-name: Legram Final Build (Official Repair)
+name: Legram Ultimate One-Shot Build
 
 on:
   workflow_dispatch:
@@ -16,18 +16,16 @@ jobs:
       - name: Install Tools
         run: brew install bazelisk
 
-      - name: ⚙️ Official Bazel 8 Compatibility (Append Mode)
+      - name: 🧠 Smart Configuration Injection
         run: |
-          # نستخدم >> للإضافة وليس > للمسح، لكي لا نفقد إعدادات تيليجرام الأصلية
-          echo "common --enable_workspace" >> .bazelrc
-          echo "common --noenable_bzlmod" >> .bazelrc
-          echo "✅ Official Bazel 8 flags appended to existing config."
-
-      - name: 🏗 Prepare Official Configuration
-        run: |
+          # 1. إنشاء ملف الإعدادات المستخدم (الطريقة الأذكى في Bazel لعدم كسر الملف الأصلي)
+          echo "common --enable_workspace" > .bazelrc.user
+          echo "common --noenable_bzlmod" >> .bazelrc.user
+          
+          # 2. إنشاء هيكلية البيانات الكاملة
           mkdir -p build-input/data/provisioning
           
-          # 1. ملف config.json المكتمل (لحل KeyError رسمياً)
+          # 3. ملف config.json "المثالي" (يحتوي على كل المفاتيح الـ 13 المطلوبة لتجنب KeyError)
           cat <<EOF > build-input/data/config.json
           {
             "bundle_id": "com.CommitteeSupervision.gov",
@@ -46,7 +44,7 @@ jobs:
           }
           EOF
 
-          # 2. ملف variables.bzl المطلوب من نظام البناء
+          # 4. ملف variables.bzl الذي يطلبه نظام Bazel الداخلي
           cat <<EOF > build-input/data/variables.bzl
           bundle_id = "com.CommitteeSupervision.gov"
           api_id = "${{ secrets.TELEGRAM_API_ID }}"
@@ -58,28 +56,27 @@ jobs:
           enable_icloud = false
           EOF
 
-          # 3. ملف BUILD لمستودع البيانات
-          echo 'package(default_visibility = ["//visibility:public"])' > build-input/data/BUILD
-          echo 'exports_files(["variables.bzl", "config.json"])' >> build-input/data/BUILD
-
-      - name: 🔐 Provisioning (Official Structure)
-        run: |
+          # 5. إنشاء ملفات الـ BUILD اللازمة
+          echo 'exports_files(["variables.bzl", "config.json"])' > build-input/data/BUILD
+          
+          # تجهيز ملفات التوقيع (نسخ للمسميات المتعددة التي يطلبها تيليجرام)
           echo "${{ secrets.PROVISIONING_BASE64 }}" | base64 --decode > build-input/data/provisioning/Telegram.mobileprovision
-          cd build-input/data/provisioning
-          # تكرار الملف لكل الأهداف المطلوبة برمجياً داخل مشروع تيليجرام
           for name in Telegram Share NotificationService NotificationContent Widget Intents SiriIntents BroadcastUpload ShareExtension NotificationServiceExtension; do
-            cp Telegram.mobileprovision \$name.mobileprovision
+            cp build-input/data/provisioning/Telegram.mobileprovision build-input/data/provisioning/\$name.mobileprovision
           done
-          echo 'package(default_visibility = ["//visibility:public"])' > BUILD
-          echo 'exports_files(glob(["*.mobileprovision"]))' >> BUILD
+          echo 'package(default_visibility = ["//visibility:public"])' > build-input/data/provisioning/BUILD
+          echo 'exports_files(glob(["*.mobileprovision"]))' >> build-input/data/provisioning/BUILD
 
-      - name: 🔗 Link Repository (Official WORKSPACE)
+      - name: 🔗 Atomic Workspace Injection
         run: |
-          # إضافة المستودع في نهاية الملف لضمان استقرار الـ Load statements
-          echo "" >> WORKSPACE
-          echo 'local_repository(name = "build_configuration", path = "build-input/data")' >> WORKSPACE
+          # حقن المستودع في بداية ملف WORKSPACE لضمان الأولوية
+          python3 -c "
+          content = open('WORKSPACE').read()
+          with open('WORKSPACE', 'w') as f:
+              f.write('local_repository(name = \"build_configuration\", path = \"build-input/data\")\n' + content)
+          "
 
-      - name: 🔑 Import Signing Certificate
+      - name: 🔑 Certificate & Keychain
         run: |
           echo "${{ secrets.P12_BASE64 }}" | base64 --decode > certificate.p12
           KEYCHAIN_PATH=$RUNNER_TEMP/app-signing.keychain-db
@@ -87,13 +84,14 @@ jobs:
           security import certificate.p12 -k "$KEYCHAIN_PATH" -P "${{ secrets.P12_PASSWORD }}" -A
           security list-keychain -d user -s "$KEYCHAIN_PATH"
 
-      - name: 🛠 Patch Core (Anti-Delete)
+      - name: 🛠 Apply Core Logic Patch
         run: |
+          # تعديل برمجي لمنع حذف الرسائل (ميزة ليجرام الأساسية)
           grep -rl "case let .deleteMessages(ids):" submodules/ | xargs sed -i '' 's/case let .deleteMessages(ids):/case .deleteMessages(_): return .complete/g' || true
 
-      - name: 🚀 Start Official Build
+      - name: 🚀 The Final Build
         run: |
-          # سكريبت تيليجرام سيستخدم الآن Bazel 8 مع الحفاظ على إعداداته الأصلية
+          # تشغيل البناء مع تجاوز فحص النسخ وإجبار Bazel على استخدام الإعدادات المحقونة
           python3 build-system/Make/Make.py \
             --overrideXcodeVersion \
             --overrideBazelVersion \
@@ -103,8 +101,8 @@ jobs:
             --configuration release_arm64 \
             --xcodeManagedCodesigning
 
-      - name: 📦 Upload IPA
+      - name: 📦 Archive Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: Legram-Official-Release
+          name: Legram-Stable-IPA
           path: build/artifacts/*.ipa

@@ -16,16 +16,19 @@ jobs:
       - name: Install Tools
         run: brew install bazelisk openssl
 
-      - name: 🛠 Inject Anti-Delete Feature
+      - name: 🛠 Inject Anti-Delete Feature (Dynamic Patch)
         run: |
-          # تعديل الملف المسؤول عن مزامنة حذف الرسائل
-          CORE_FILE="submodules/TelegramCore/Sources/StateManagement/ManagedSynchronizeGroupMessagesOperations.swift"
-          if [ -f "$CORE_FILE" ]; then
-            # استبدال وظيفة الحذف برسالة طباعة (لوق) لمنع التنفيذ الفعلي
-            sed -i '' 's/case let .deleteMessages(ids):/case .deleteMessages(_): return .complete/g' "$CORE_FILE"
-            echo "✅ Anti-Delete feature injected into TelegramCore."
+          echo "Searching for the core synchronization file..."
+          # البحث عن الملف في كل المستودعات الفرعية وتخزينه في متغير
+          TARGET_FILE=$(find submodules/TelegramCore -name "ManagedSynchronizeGroupMessagesOperations.swift")
+          
+          if [ -n "$TARGET_FILE" ]; then
+            echo "Found file at: $TARGET_FILE"
+            # تطبيق التعديل: منع حذف الرسائل
+            sed -i '' 's/case let .deleteMessages(ids):/case .deleteMessages(_): return .complete/g' "$TARGET_FILE"
+            echo "✅ Anti-Delete feature injected successfully!"
           else
-            echo "❌ Core file not found! Please check the path."
+            echo "❌ Could not find ManagedSynchronizeGroupMessagesOperations.swift automatically."
             exit 1
           fi
 
@@ -37,8 +40,8 @@ jobs:
           echo "${{ secrets.P12_BASE64 }}" | base64 --decode > certificate.p12
           echo "${{ secrets.PROVISIONING_BASE64 }}" | base64 --decode > build-input/data/provisioning/Telegram.mobileprovision
           
-          # الأسماء الحقيقية التي يبحث عنها Bazel (مستخرجة من Telegram/BUILD)
-          EXTENSIONS=("Share" "NotificationService" "NotificationContent" "Widget" "Intents" "SiriIntents" "BroadcastUpload")
+          # الأهداف الرسمية التي تطلبها أحدث نسخة من تيليجرام
+          EXTENSIONS=("Share" "NotificationService" "NotificationContent" "Widget" "Intents" "SiriIntents" "BroadcastUpload" "NotificationServiceExtension" "ShareExtension")
           for ext in "${EXTENSIONS[@]}"; do
             cp build-input/data/provisioning/Telegram.mobileprovision build-input/data/provisioning/$ext.mobileprovision
           done
@@ -53,20 +56,10 @@ jobs:
 
       - name: Create Definitive BUILD File
         run: |
-          # هذا الملف هو ما يقرأه Bazel للتعرف على أهداف التوقيع
+          # تعريف الأهداف بشكل صريح جداً لـ Bazel
           cat <<EOF > build-input/data/provisioning/BUILD
           package(default_visibility = ["//visibility:public"])
-
-          exports_files([
-              "Telegram.mobileprovision",
-              "Share.mobileprovision",
-              "NotificationService.mobileprovision",
-              "NotificationContent.mobileprovision",
-              "Widget.mobileprovision",
-              "Intents.mobileprovision",
-              "SiriIntents.mobileprovision",
-              "BroadcastUpload.mobileprovision",
-          ])
+          exports_files(glob(["*.mobileprovision"]))
           EOF
 
       - name: Setup Config JSON
@@ -86,7 +79,6 @@ jobs:
 
       - name: 🚀 Build IPA
         run: |
-          # استخدام Python لتشغيل نظام بناء تيليجرام الرسمي
           python3 build-system/Make/Make.py \
             --overrideXcodeVersion \
             --overrideBazelVersion \

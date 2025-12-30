@@ -1,4 +1,4 @@
-name: Build Legram (Full Repository Fix)
+name: Build Legram (Final Explicit Fix)
 
 on:
   workflow_dispatch:
@@ -18,47 +18,62 @@ jobs:
 
       - name: 🛠 Patch Core (Anti-Delete)
         run: |
-          # حقن ميزة منع حذف الرسائل برمجياً
+          echo "Injecting Anti-Delete logic..."
+          # تعديل كود حذف الرسائل لجعله لا يفعل شيئاً
           grep -rl "case let .deleteMessages(ids):" submodules/ | xargs sed -i '' 's/case let .deleteMessages(ids):/case .deleteMessages(_): return .complete/g' || true
           echo "✅ Anti-Delete patch applied."
 
-      - name: 🔐 Prepare Provisioning & Build Configuration
+      - name: 🔐 Prepare Provisioning (Explicit Targets)
         run: |
-          # 1. إنشاء هيكل المجلدات
+          # 1. إنشاء المجلدات
           mkdir -p build-input/data/provisioning
           
-          # 2. فك تشفير الملفات
+          # 2. فك ملف التوقيع الأساسي
           echo "${{ secrets.PROVISIONING_BASE64 }}" | base64 --decode > build-input/data/provisioning/Telegram.mobileprovision
           
-          # 3. نسخ ملفات التوقيع لكل الأهداف
-          cd build-input/data/provisioning
-          for name in Share NotificationService NotificationContent Widget Intents SiriIntents BroadcastUpload; do
-            cp Telegram.mobileprovision $name.mobileprovision
-          done
+          # 3. نسخ الملف لكل الملحقات المحتملة (بناءً على أخطاء السجلات)
+          PROV_DIR="build-input/data/provisioning"
+          NAMES=("Share" "NotificationService" "NotificationContent" "Widget" "Intents" "SiriIntents" "BroadcastUpload" "ShareExtension" "NotificationServiceExtension")
           
-          # 4. إنشاء ملف BUILD الخاص بالتوقيع
-          cat <<EOF > BUILD
+          for name in "${NAMES[@]}"; do
+            cp "$PROV_DIR/Telegram.mobileprovision" "$PROV_DIR/$name.mobileprovision"
+          done
+
+          # 4. إنشاء ملف BUILD صريح 100% (بدون استخدام glob)
+          cat <<EOF > $PROV_DIR/BUILD
           package(default_visibility = ["//visibility:public"])
-          exports_files(glob(["*.mobileprovision"]))
+          exports_files([
+              "Telegram.mobileprovision",
+              "Share.mobileprovision",
+              "NotificationService.mobileprovision",
+              "NotificationContent.mobileprovision",
+              "Widget.mobileprovision",
+              "Intents.mobileprovision",
+              "SiriIntents.mobileprovision",
+              "BroadcastUpload.mobileprovision",
+              "ShareExtension.mobileprovision",
+              "NotificationServiceExtension.mobileprovision",
+          ])
           EOF
-          cd ../../../
 
       - name: 🏗 Inject Build Configuration Repository
         run: |
-          # هذه هي الخطوة السحرية: تعريف المستودع الناقص في ملف WORKSPACE
-          # سنخبر Bazel أن المجلد build-input/data هو مستودع رسمي
-          
-          # إنشاء ملف BUILD فارغ في المجلد الرئيسي لـ data ليعتبره Bazel حزمة (Package)
+          # تعريف المستودع في ملف WORKSPACE ليتعرف عليه Bazel 8
           touch build-input/data/BUILD
+          touch build-input/data/variables.bzl
           
-          # إضافة تعريف المستودع إلى نهاية ملف WORKSPACE
-          echo "" >> WORKSPACE
-          echo 'local_repository(' >> WORKSPACE
-          echo '    name = "build_configuration",' >> WORKSPACE
-          echo '    path = "build-input/data",' >> WORKSPACE
-          echo ')' >> WORKSPACE
+          # إضافة التعريف في بداية الملف لضمان الأولوية
+          sed -i '' '1i\
+          local_repository(name = "build_configuration", path = "build-input/data")\
+          ' WORKSPACE
           
-          echo "✅ build_configuration repository injected into WORKSPACE."
+          echo "✅ Repository build_configuration injected."
+
+      - name: 🔍 Debug File Structure
+        run: |
+          echo "Checking provisioning targets..."
+          cat build-input/data/provisioning/BUILD
+          ls build-input/data/provisioning/
 
       - name: 🔑 Install Signing Certificate
         run: |
@@ -89,7 +104,7 @@ jobs:
 
       - name: 🚀 Build IPA
         run: |
-          # سنزيل قيود .bazelrc التي وضعناها سابقاً لنسمح للنظام بالعمل بطبيعته
+          # حذف أي إعدادات سابقة قد تسبب تضارباً
           rm -f .bazelrc
           
           python3 build-system/Make/Make.py \
@@ -104,5 +119,5 @@ jobs:
       - name: 📦 Upload IPA
         uses: actions/upload-artifact@v4
         with:
-          name: Legram-Final-Package
+          name: Legram-IPA-Package
           path: build/artifacts/*.ipa

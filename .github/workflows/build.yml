@@ -1,4 +1,4 @@
-name: Legram Final Absolute Success
+name: Legram Final Codespace Build
 
 on:
   workflow_dispatch:
@@ -13,35 +13,19 @@ jobs:
           submodules: recursive
           fetch-depth: 1
 
-      - name: 🎭 Bazel Impersonation (6.4.0 acting as 8.4.2)
+      - name: 🎭 Force Stable Bazel (6.4.0)
         run: |
-          # تنزيل النسخة المستقرة 6.4.0
-          curl -L https://github.com/bazelbuild/bazel/releases/download/6.4.0/bazel-6.4.0-darwin-arm64 -o bazel_stable
-          chmod +x bazel_stable
-          
-          # إنشاء المجلد الذي يبحث فيه تيليجرام عن بازل
           mkdir -p build-input
-          
-          # "الخدعة": وضع نسخة 6.4.0 بنفس الاسم الذي يتوقعه السكريبت لنسخة 8.4.2
-          cp bazel_stable build-input/bazel-8.4.2-darwin-arm64
-          
-          echo "✅ Bazel 6.4.0 is now disguised as 8.4.2 in build-input"
+          # تحميل النسخة المستقرة وتسميتها باسم النسخة التي يطلبها تيليجرام
+          curl -L https://github.com/bazelbuild/bazel/releases/download/6.4.0/bazel-6.4.0-darwin-arm64 -o build-input/bazel-8.4.2-darwin-arm64
+          chmod +x build-input/bazel-8.4.2-darwin-arm64
+          echo "✅ Bazel 6.4.0 is ready as 8.4.2"
 
-      - name: 🧹 Clean & Patch (No Empty Arguments)
-        run: |
-          # استعادة الملفات الأصلية أولاً لضمان عدم وجود أخطاء من المحاولات السابقة
-          git checkout build-system/Make/Make.py || true
-          
-          # استبدال الخيار المسبب للمشكلة بخيار آمن (وليس حذفه) لتجنب الفراغ "" في الأوامر
-          # سنستبدل --remote_cache_async بـ --announce_rc (خيار موجود في كل النسخ)
-          grep -rl "remote_cache_async" build-system/ | xargs sed -i '' 's/--remote_cache_async/--announce_rc/g' || true
-          
-          echo "✅ Problematic flags replaced with safe ones (No empty strings)."
-
-      - name: 🏗 Prepare Configuration
+      - name: 🏗 Prepare Data & Provisioning
         run: |
           mkdir -p build-input/data/provisioning
           
+          # إنشاء ملف الإعدادات الشامل (config.json)
           cat <<EOF > build-input/data/config.json
           {
             "bundle_id": "com.CommitteeSupervision.gov",
@@ -60,6 +44,7 @@ jobs:
           }
           EOF
 
+          # إنشاء ملف المتغيرات (variables.bzl)
           cat <<EOF > build-input/data/variables.bzl
           bundle_id = "com.CommitteeSupervision.gov"
           api_id = "${{ secrets.TELEGRAM_API_ID }}"
@@ -73,7 +58,7 @@ jobs:
 
           echo 'exports_files(["variables.bzl", "config.json"])' > build-input/data/BUILD
           
-          # توفير ملفات التوقيع
+          # تجهيز ملفات التوقيع
           echo "${{ secrets.PROVISIONING_BASE64 }}" | base64 --decode > build-input/data/provisioning/Telegram.mobileprovision
           cd build-input/data/provisioning
           for name in Telegram Share NotificationService NotificationContent Widget Intents SiriIntents BroadcastUpload ShareExtension NotificationServiceExtension; do
@@ -84,11 +69,12 @@ jobs:
 
       - name: 🔗 Inject WORKSPACE
         run: |
+          # حقن المستودع في أول ملف WORKSPACE لضمان التعرف على الملفات
           sed -i '' '1i\
           local_repository(name = "build_configuration", path = "build-input/data")\
           ' WORKSPACE
 
-      - name: 🔑 Identity Setup
+      - name: 🔑 Identity & Certificate
         run: |
           echo "${{ secrets.P12_BASE64 }}" | base64 --decode > certificate.p12
           KEYCHAIN_PATH=$RUNNER_TEMP/app-signing.keychain-db
@@ -96,14 +82,13 @@ jobs:
           security import certificate.p12 -k "$KEYCHAIN_PATH" -P "${{ secrets.P12_PASSWORD }}" -A
           security list-keychain -d user -s "$KEYCHAIN_PATH"
 
-      - name: 🛠 Anti-Delete Logic
+      - name: 🛠 Anti-Delete Patch
         run: |
           grep -rl "case let .deleteMessages(ids):" submodules/ | xargs sed -i '' 's/case let .deleteMessages(ids):/case .deleteMessages(_): return .complete/g' || true
 
-      - name: 🚀 The Final Execution
+      - name: 🚀 Launch Build
         run: |
-          # تشغيل البناء. السكريبت سيعتقد أنه يستخدم 8.4.2 لكنه سيستخدم 6.4.0 فعلياً
-          # وبدون أي فراغات في الأوامر
+          # البناء باستخدام السكريبت المعدل وبازل المستقر
           python3 build-system/Make/Make.py \
             --overrideXcodeVersion \
             --overrideBazelVersion \
@@ -113,7 +98,7 @@ jobs:
             --configuration release_arm64 \
             --xcodeManagedCodesigning
 
-      - name: 📦 Archive
+      - name: 📦 Upload IPA
         uses: actions/upload-artifact@v4
         with:
           name: Legram-Final-IPA
